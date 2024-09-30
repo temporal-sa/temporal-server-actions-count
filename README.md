@@ -48,3 +48,23 @@ With custom Prometheus URL and namespace:
 ```bash
 poetry run python temporal-server-actions-count.py --time-window-seconds 120 --prometheus-url http://localhost:9090/metrics --included-namespace default
 ```
+
+## Sample output
+
+```bash
+poetry run python temporal-server-actions-count.py --time-window-seconds 10
+Starting Prometheus action metric monitoring with a time window of 10 seconds...
+Monitoring Prometheus endpoint: http://localhost:63626/metrics
+Sampling from all namespaces.
+Please wait, the total number of actions will be reported after 10 seconds...
+Current average actions per second: 5.00
+Current average actions per second: 209.00
+Current average actions per second: 106.00
+Current average actions per second: 106.00
+Current average actions per second: 106.00
+Current average actions per second: 53.00
+Current average actions per second: 0.00
+Current average actions per second: 106.00
+Total actions in the last 10 seconds: 691.0
+Monitoring completed.
+```
