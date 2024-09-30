@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "temporal-server-actions-count"
+version = "0.1.0"
+description = "This script monitors Prometheus action metrics from a Temporal Server and calculates the average actions    per second and the total number of actions over the specified time window."
+authors = ["Temporal SA Team"]
+readme = "README.md"
+packages = [{include = "temporal_server_actions_count"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+requests = "^2.32.3"
+prometheus-client = "^0.21.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
