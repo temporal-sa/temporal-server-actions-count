@@ -1,30 +1,37 @@
 import time
 import requests
 import argparse
+import logging
 from prometheus_client.parser import text_string_to_metric_families
+from typing import List, Optional
 
-def scrape_metrics(prometheus_url):
-    """Fetches metrics from the Prometheus endpoint and returns parsed data."""
-    response = requests.get(prometheus_url)
-    response.raise_for_status()  # Raise an error if the request failed
-    return list(text_string_to_metric_families(response.text))
+def setup_logging() -> None:
+    """Configure logging for the script."""
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def get_action_count(metrics_data, included_namespace, excluded_namespace="temporal_system"):
-    """Extracts and returns the total 'action' count from the parsed metrics data."""
-    total_actions = 0
-    for family in metrics_data:
-        if family.name == 'action':
-            for sample in family.samples:
-                namespace = sample.labels.get('namespace')
+def scrape_metrics(prometheus_url: str) -> List:
+    """Fetch metrics from the Prometheus endpoint and return parsed data."""
+    try:
+        response = requests.get(prometheus_url, timeout=10)
+        response.raise_for_status()
+        return list(text_string_to_metric_families(response.text))
+    except requests.RequestException as e:
+        logging.error(f"Failed to scrape metrics: {e}")
+        return []
 
-                # Apply namespace filter and exclude specified namespace
-                if (namespace != excluded_namespace and 
-                    (included_namespace == "" or namespace == included_namespace)):
-                    total_actions += sample.value
-    return total_actions
+def get_action_count(metrics_data: List, included_namespace: Optional[str], excluded_namespace: str = "temporal_system") -> float:
+    """Extract and return the total 'action' count from the parsed metrics data."""
+    return sum(
+        sample.value
+        for family in metrics_data
+        if family.name == 'action'
+        for sample in family.samples
+        if sample.labels.get('namespace') != excluded_namespace
+        and (not included_namespace or sample.labels.get('namespace') == included_namespace)
+    )
 
-def print_readme():
-    """Prints a README message when no argument is provided."""
+def print_readme() -> None:
+    """Print a README message when no argument is provided."""
     readme_message = """
     Usage: python temporal-server-actions-count.py --time-window-seconds <time_window_in_seconds> [OPTIONS]
 
@@ -45,65 +52,54 @@ def print_readme():
     """
     print(readme_message)
 
-def main(time_window, prometheus_url, included_namespace):
-    print(f"Starting Prometheus action metric monitoring with a time window of {time_window} seconds...")
-    print(f"Monitoring Prometheus endpoint: {prometheus_url}")
-    if included_namespace:
-        print(f"Sampling only from namespace: {included_namespace}")
-    else:
-        print("Sampling from all namespaces.")
-    print(f"Please wait, the total number of actions will be reported after {time_window} seconds...")
+def monitor_actions(time_window: int, prometheus_url: str, included_namespace: Optional[str]) -> None:
+    """Monitor action metrics and report results."""
+    logging.info(f"Starting Prometheus action metric monitoring with a time window of {time_window} seconds...")
+    logging.info(f"Monitoring Prometheus endpoint: {prometheus_url}")
+    logging.info(f"Sampling from {'all namespaces' if not included_namespace else f'namespace: {included_namespace}'}")
+    logging.info(f"Please wait, the total number of actions will be reported after {time_window} seconds...")
 
     last_action_count = None
     total_action_delta = 0
     start_time = time.time()
 
-    while True:
-        try:
-            # Scrape and parse the metrics data
+    try:
+        while time.time() - start_time < time_window:
             metrics_data = scrape_metrics(prometheus_url)
-
-            # Get the current action count from the metrics data
             current_action_count = get_action_count(metrics_data, included_namespace)
 
-            # Calculate the difference between the current and last action count
             if last_action_count is not None:
                 action_delta = current_action_count - last_action_count
                 total_action_delta += action_delta
-                actions_per_second = action_delta / 1  # Calculating actions per second
+                actions_per_second = action_delta
 
-                # Report the average actions per second every second
-                print(f"Current average actions per second: {actions_per_second:.2f}")
+                logging.info(f"Current average actions per second: {actions_per_second:.2f}")
 
-            # Update the last action count
             last_action_count = current_action_count
-
-            # Wait for 1 second before the next scrape
             time.sleep(1)
 
-            # Check if the total time has reached the specified time window
-            if time.time() - start_time >= time_window:
-                break
+    except KeyboardInterrupt:
+        logging.info("Monitoring interrupted by user.")
+    
+    logging.info(f"Total actions in the last {time_window} seconds: {total_action_delta}")
+    logging.info("Monitoring completed.")
 
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            break
-
-    # Print the total number of actions after the time window
-    print(f"Total actions in the last {time_window} seconds: {total_action_delta}")
-    print("Monitoring completed.")
-
-if __name__ == "__main__":
+def main() -> None:
+    """Main function to parse arguments and start monitoring."""
     parser = argparse.ArgumentParser(description="Monitor Prometheus action metrics and calculate average actions per second and total actions over a given time window.")
     
-    # Arguments
     parser.add_argument("--time-window-seconds", type=int, required=True, help="The time period in seconds to capture the action metrics.")
     parser.add_argument("--prometheus-url", type=str, default="http://localhost:63626/metrics", help="The Prometheus scrape URL (default: http://localhost:63626/metrics).")
-    parser.add_argument("--included-namespace", type=str, default="", help="The namespace to filter for. If not provided, samples all namespaces.")
+    parser.add_argument("--included-namespace", type=str, default=None, help="The namespace to filter for. If not provided, samples all namespaces.")
     
     args = parser.parse_args()
 
+    setup_logging()
+    
     if args.time_window_seconds:
-        main(args.time_window_seconds, args.prometheus_url, args.included_namespace)
+        monitor_actions(args.time_window_seconds, args.prometheus_url, args.included_namespace)
     else:
         print_readme()
+
+if __name__ == "__main__":
+    main()
